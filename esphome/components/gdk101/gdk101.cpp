@@ -34,6 +34,7 @@ void GDK101Component::update() {
 void GDK101Component::setup() {
   uint8_t data[2];
   ESP_LOGD(TAG, "Starting setup, address=0x%02X", this->address_);
+  delay(300);
   if (!this->reset_sensor_(data)) {
     this->status_set_error(LOG_STR("Reset failed!"));
     this->mark_failed();
