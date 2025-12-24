@@ -51,6 +51,13 @@ class GDK101Component : public PollingComponent, public i2c::I2CDevice {
   bool read_status_(uint8_t *data);
   bool read_fw_version_(uint8_t *data);
   bool read_measurement_duration_(uint8_t *data);
+
+  void init_attempt_();
+  void init_fw_read_();
+
+  uint8_t init_attempts_{0};
+  bool any_reset_ok_{false};
+  bool initialized_{false};
 };
 
 }  // namespace gdk101

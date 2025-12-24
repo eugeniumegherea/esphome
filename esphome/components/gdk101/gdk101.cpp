@@ -8,6 +8,9 @@ namespace gdk101 {
 static const char *const TAG = "gdk101";
 
 void GDK101Component::update() {
+  if (!this->initialized_) {
+    return;
+  }
   uint8_t data[2];
   if (!this->read_dose_1m_(data)) {
     this->status_set_warning(LOG_STR("Failed to read dose 1m"));
@@ -32,32 +35,10 @@ void GDK101Component::update() {
 }
 
 void GDK101Component::setup() {
-  uint8_t data[2];
-  bool ready = false;
-  bool reset_ok = false;
-  for (uint8_t attempt = 0; attempt < 5; attempt++) {
-    if (!this->reset_sensor_(data)) {
-      delay(200);
-      continue;
-    }
-    reset_ok = true;
-    delay(50);
-    if (this->read_fw_version_(data)) {
-      ready = true;
-      break;
-    }
-    delay(200);
-  }
-
-  if (!ready) {
-    if (!reset_ok) {
-      this->status_set_error(LOG_STR("Reset failed!"));
-    } else {
-      this->status_set_error(LOG_STR("Failed to read firmware version"));
-    }
-    this->mark_failed();
-    return;
-  }
+  this->init_attempts_ = 0;
+  this->any_reset_ok_ = false;
+  this->initialized_ = false;
+  this->set_timeout("gdk101_init", 0, [this]() { this->init_attempt_(); });
 }
 
 void GDK101Component::dump_config() {
@@ -95,7 +76,7 @@ bool GDK101Component::read_bytes_with_retry_(uint8_t a_register, uint8_t *data, 
         return true;
       }
     }
-    delay(20);
+    delay(5);
   }
   return false;
 }
@@ -110,7 +91,6 @@ bool GDK101Component::reset_sensor_(uint8_t *data) {
     ESP_LOGW(TAG, "Reset command failed!");
     return false;
   }
-  delay(50);
   return true;
 }
 
@@ -197,6 +177,42 @@ bool GDK101Component::read_measurement_duration_(uint8_t *data) {
   }
 #endif  // USE_SENSOR
   return true;
+}
+
+void GDK101Component::init_attempt_() {
+  if (this->initialized_) {
+    return;
+  }
+  if (this->init_attempts_ >= 5) {
+    if (!this->any_reset_ok_) {
+      this->status_set_error(LOG_STR("Reset failed!"));
+    } else {
+      this->status_set_error(LOG_STR("Failed to read firmware version"));
+    }
+    this->mark_failed();
+    return;
+  }
+
+  this->init_attempts_++;
+  uint8_t data[2];
+  if (!this->reset_sensor_(data)) {
+    this->set_timeout("gdk101_init", 200, [this]() { this->init_attempt_(); });
+    return;
+  }
+  this->any_reset_ok_ = true;
+  this->set_timeout("gdk101_init_fw", 50, [this]() { this->init_fw_read_(); });
+}
+
+void GDK101Component::init_fw_read_() {
+  if (this->initialized_) {
+    return;
+  }
+  uint8_t data[2];
+  if (this->read_fw_version_(data)) {
+    this->initialized_ = true;
+    return;
+  }
+  this->set_timeout("gdk101_init", 200, [this]() { this->init_attempt_(); });
 }
 
 }  // namespace gdk101
