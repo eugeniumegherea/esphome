@@ -34,19 +34,27 @@ void GDK101Component::update() {
 void GDK101Component::setup() {
   uint8_t data[2];
   ESP_LOGD(TAG, "Starting setup, address=0x%02X", this->address_);
-  // first, reset the sensor
-  if (!this->reset_sensor_(data)) {
-    this->status_set_error(LOG_STR("Reset failed!"));
+  delay(300);
+
+  bool ready = false;
+  for (uint8_t attempt = 0; attempt < 5; attempt++) {
+    ESP_LOGD(TAG, "Setup attempt %u", attempt + 1);
+    if (this->read_fw_version_(data)) {
+      ready = true;
+      break;
+    }
+    if (!this->reset_sensor_(data)) {
+      ESP_LOGD(TAG, "Reset attempt %u failed", attempt + 1);
+    }
+    delay(200);
+  }
+
+  if (!ready) {
+    this->status_set_error(LOG_STR("Failed to initialize"));
     this->mark_failed();
     return;
   }
-  delay(50);
-  // read firmware version
-  if (!this->read_fw_version_(data)) {
-    this->status_set_error(LOG_STR("Failed to read firmware version"));
-    this->mark_failed();
-    return;
-  }
+
   ESP_LOGD(TAG, "Setup complete, fw=%u.%u", data[0], data[1]);
 }
 
@@ -75,26 +83,22 @@ void GDK101Component::dump_config() {
 float GDK101Component::get_setup_priority() const { return setup_priority::DATA; }
 
 bool GDK101Component::read_data_(uint8_t a_register, uint8_t *data, uint8_t len) {
-  ESP_LOGVV(TAG, "Reading reg 0x%02X (len=%u)", a_register, len);
-  if (this->read_bytes(a_register, data, len)) {
-    ESP_LOGVV(TAG, "Read ok (combined) reg=0x%02X data[0]=0x%02X data[1]=0x%02X", a_register, data[0],
-              len > 1 ? data[1] : 0);
-    return true;
+  for (uint8_t attempt = 0; attempt < 3; attempt++) {
+    ESP_LOGVV(TAG, "Reading reg 0x%02X (len=%u) attempt %u", a_register, len, attempt + 1);
+    if (this->write(&a_register, 1) == i2c::ERROR_OK) {
+      delay(2);
+      if (this->read(data, len) == i2c::ERROR_OK) {
+        ESP_LOGVV(TAG, "Read ok reg=0x%02X data[0]=0x%02X data[1]=0x%02X", a_register, data[0],
+                  len > 1 ? data[1] : 0);
+        return true;
+      }
+      ESP_LOGD(TAG, "Read for reg=0x%02X failed after write", a_register);
+    } else {
+      ESP_LOGD(TAG, "Write for reg=0x%02X failed", a_register);
+    }
+    delay(20);
   }
-
-  ESP_LOGD(TAG, "Combined read failed for reg=0x%02X, retrying write+read", a_register);
-  if (this->write(&a_register, 1) != i2c::ERROR_OK) {
-    ESP_LOGE(TAG, "Write for reg=0x%02X failed", a_register);
-    return false;
-  }
-  delay(2);
-  if (this->read(data, len) != i2c::ERROR_OK) {
-    ESP_LOGE(TAG, "Read for reg=0x%02X failed after write", a_register);
-    return false;
-  }
-  ESP_LOGVV(TAG, "Read ok (separate) reg=0x%02X data[0]=0x%02X data[1]=0x%02X", a_register, data[0],
-            len > 1 ? data[1] : 0);
-  return true;
+  return false;
 }
 
 bool GDK101Component::reset_sensor_(uint8_t *data) {
@@ -106,7 +110,7 @@ bool GDK101Component::reset_sensor_(uint8_t *data) {
 
   const uint8_t reset_cmd = GDK101_REG_RESET;
   if (this->write(&reset_cmd, 1) != i2c::ERROR_OK) {
-    ESP_LOGE(TAG, "Reset command failed!");
+    ESP_LOGW(TAG, "Reset command failed!");
     return false;
   }
   delay(50);
