@@ -33,6 +33,7 @@ void GDK101Component::update() {
 
 void GDK101Component::setup() {
   uint8_t data[2];
+  ESP_LOGD(TAG, "Starting setup, address=0x%02X", this->address_);
   // first, reset the sensor
   if (!this->reset_sensor_(data)) {
     this->status_set_error(LOG_STR("Reset failed!"));
@@ -46,6 +47,7 @@ void GDK101Component::setup() {
     this->mark_failed();
     return;
   }
+  ESP_LOGD(TAG, "Setup complete, fw=%u.%u", data[0], data[1]);
 }
 
 void GDK101Component::dump_config() {
@@ -73,19 +75,32 @@ void GDK101Component::dump_config() {
 float GDK101Component::get_setup_priority() const { return setup_priority::DATA; }
 
 bool GDK101Component::read_data_(uint8_t a_register, uint8_t *data, uint8_t len) {
+  ESP_LOGVV(TAG, "Reading reg 0x%02X (len=%u)", a_register, len);
   if (this->read_bytes(a_register, data, len)) {
+    ESP_LOGVV(TAG, "Read ok (combined) reg=0x%02X data[0]=0x%02X data[1]=0x%02X", a_register, data[0],
+              len > 1 ? data[1] : 0);
     return true;
   }
 
+  ESP_LOGD(TAG, "Combined read failed for reg=0x%02X, retrying write+read", a_register);
   if (this->write(&a_register, 1) != i2c::ERROR_OK) {
+    ESP_LOGE(TAG, "Write for reg=0x%02X failed", a_register);
     return false;
   }
   delay(2);
-  return this->read(data, len) == i2c::ERROR_OK;
+  if (this->read(data, len) != i2c::ERROR_OK) {
+    ESP_LOGE(TAG, "Read for reg=0x%02X failed after write", a_register);
+    return false;
+  }
+  ESP_LOGVV(TAG, "Read ok (separate) reg=0x%02X data[0]=0x%02X data[1]=0x%02X", a_register, data[0],
+            len > 1 ? data[1] : 0);
+  return true;
 }
 
 bool GDK101Component::reset_sensor_(uint8_t *data) {
+  ESP_LOGD(TAG, "Issuing reset sequence");
   if (this->read_data_(GDK101_REG_RESET, data, 1)) {
+    ESP_LOGD(TAG, "Reset read command acknowledged");
     return true;
   }
 
@@ -95,6 +110,7 @@ bool GDK101Component::reset_sensor_(uint8_t *data) {
     return false;
   }
   delay(50);
+  ESP_LOGD(TAG, "Reset write command sent");
   return true;
 }
 
