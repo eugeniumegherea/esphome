@@ -35,6 +35,11 @@ void GDK101Component::setup() {
   uint8_t data[2];
   ESP_LOGD(TAG, "Starting setup, address=0x%02X", this->address_);
   delay(300);
+  if (this->read_fw_version_(data)) {
+    ESP_LOGD(TAG, "Setup complete, fw=%u.%u", data[0], data[1]);
+    return;
+  }
+  ESP_LOGD(TAG, "Firmware read failed, attempting reset");
   if (!this->reset_sensor_(data)) {
     this->status_set_error(LOG_STR("Reset failed!"));
     this->mark_failed();
