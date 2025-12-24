@@ -41,10 +41,10 @@ class GDK101Component : public PollingComponent, public i2c::I2CDevice {
   void setup() override;
   void dump_config() override;
   float get_setup_priority() const override;
-  void update() override;
+ void update() override;
 
  protected:
-  bool read_bytes_with_retry_(uint8_t a_register, uint8_t *data, uint8_t len);
+  bool read_data_(uint8_t a_register, uint8_t *data, uint8_t len);
   bool reset_sensor_(uint8_t *data);
   bool read_dose_1m_(uint8_t *data);
   bool read_dose_10m_(uint8_t *data);

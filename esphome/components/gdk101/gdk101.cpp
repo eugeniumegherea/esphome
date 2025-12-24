@@ -6,7 +6,6 @@ namespace esphome {
 namespace gdk101 {
 
 static const char *const TAG = "gdk101";
-static const uint8_t NUMBER_OF_READ_RETRIES = 5;
 
 void GDK101Component::update() {
   uint8_t data[2];
@@ -40,13 +39,7 @@ void GDK101Component::setup() {
     this->mark_failed();
     return;
   }
-  // sensor should acknowledge success of the reset procedure
-  if (data[0] != 1) {
-    this->status_set_error(LOG_STR("Reset not acknowledged!"));
-    this->mark_failed();
-    return;
-  }
-  delay(10);
+  delay(50);
   // read firmware version
   if (!this->read_fw_version_(data)) {
     this->status_set_error(LOG_STR("Failed to read firmware version"));
@@ -79,33 +72,36 @@ void GDK101Component::dump_config() {
 
 float GDK101Component::get_setup_priority() const { return setup_priority::DATA; }
 
-bool GDK101Component::read_bytes_with_retry_(uint8_t a_register, uint8_t *data, uint8_t len) {
-  uint8_t retry = NUMBER_OF_READ_RETRIES;
-  bool status = false;
-  while (!status && retry) {
-    status = this->read_bytes(a_register, data, len);
-    retry--;
+bool GDK101Component::read_data_(uint8_t a_register, uint8_t *data, uint8_t len) {
+  if (this->read_bytes(a_register, data, len)) {
+    return true;
   }
-  return status;
+
+  if (this->write(&a_register, 1) != i2c::ERROR_OK) {
+    return false;
+  }
+  delay(2);
+  return this->read(data, len) == i2c::ERROR_OK;
 }
 
 bool GDK101Component::reset_sensor_(uint8_t *data) {
-  // It looks like reset is not so well designed in that sensor
-  // After sending reset command it looks that sensor start performing reset and is unresponsible during read
-  // after a while we can send another reset command and read "0x01" as confirmation
-  // Documentation not going in to such details unfortunately
-  if (!this->read_bytes_with_retry_(GDK101_REG_RESET, data, 2)) {
-    ESP_LOGE(TAG, "Updating GDK101 failed!");
-    return false;
+  if (this->read_data_(GDK101_REG_RESET, data, 1)) {
+    return true;
   }
 
+  const uint8_t reset_cmd = GDK101_REG_RESET;
+  if (this->write(&reset_cmd, 1) != i2c::ERROR_OK) {
+    ESP_LOGE(TAG, "Reset command failed!");
+    return false;
+  }
+  delay(50);
   return true;
 }
 
 bool GDK101Component::read_dose_1m_(uint8_t *data) {
 #ifdef USE_SENSOR
   if (this->rad_1m_sensor_ != nullptr) {
-    if (!this->read_bytes(GDK101_REG_READ_1MIN_AVG, data, 2)) {
+    if (!this->read_data_(GDK101_REG_READ_1MIN_AVG, data, 2)) {
       ESP_LOGE(TAG, "Updating GDK101 failed!");
       return false;
     }
@@ -121,7 +117,7 @@ bool GDK101Component::read_dose_1m_(uint8_t *data) {
 bool GDK101Component::read_dose_10m_(uint8_t *data) {
 #ifdef USE_SENSOR
   if (this->rad_10m_sensor_ != nullptr) {
-    if (!this->read_bytes(GDK101_REG_READ_10MIN_AVG, data, 2)) {
+    if (!this->read_data_(GDK101_REG_READ_10MIN_AVG, data, 2)) {
       ESP_LOGE(TAG, "Updating GDK101 failed!");
       return false;
     }
@@ -135,7 +131,7 @@ bool GDK101Component::read_dose_10m_(uint8_t *data) {
 }
 
 bool GDK101Component::read_status_(uint8_t *data) {
-  if (!this->read_bytes(GDK101_REG_READ_STATUS, data, 2)) {
+  if (!this->read_data_(GDK101_REG_READ_STATUS, data, 2)) {
     ESP_LOGE(TAG, "Updating GDK101 failed!");
     return false;
   }
@@ -158,7 +154,7 @@ bool GDK101Component::read_status_(uint8_t *data) {
 bool GDK101Component::read_fw_version_(uint8_t *data) {
 #ifdef USE_TEXT_SENSOR
   if (this->fw_version_text_sensor_ != nullptr) {
-    if (!this->read_bytes(GDK101_REG_READ_FIRMWARE, data, 2)) {
+    if (!this->read_data_(GDK101_REG_READ_FIRMWARE, data, 2)) {
       ESP_LOGE(TAG, "Updating GDK101 failed!");
       return false;
     }
@@ -174,7 +170,7 @@ bool GDK101Component::read_fw_version_(uint8_t *data) {
 bool GDK101Component::read_measurement_duration_(uint8_t *data) {
 #ifdef USE_SENSOR
   if (this->measurement_duration_sensor_ != nullptr) {
-    if (!this->read_bytes(GDK101_REG_READ_MEASURING_TIME, data, 2)) {
+    if (!this->read_data_(GDK101_REG_READ_MEASURING_TIME, data, 2)) {
       ESP_LOGE(TAG, "Updating GDK101 failed!");
       return false;
     }
