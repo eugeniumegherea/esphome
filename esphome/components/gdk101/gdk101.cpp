@@ -34,14 +34,21 @@ void GDK101Component::update() {
 void GDK101Component::setup() {
   uint8_t data[2];
   ESP_LOGD(TAG, "Starting setup, address=0x%02X", this->address_);
-  if (!this->reset_sensor_(data)) {
-    this->status_set_error(LOG_STR("Reset failed!"));
-    this->mark_failed();
-    return;
+  bool ready = false;
+  for (uint8_t attempt = 0; attempt < 5; attempt++) {
+    ESP_LOGD(TAG, "Setup attempt %u", attempt + 1);
+    if (this->read_fw_version_(data)) {
+      ready = true;
+      break;
+    }
+    if (!this->reset_sensor_(data)) {
+      ESP_LOGD(TAG, "Reset attempt %u failed", attempt + 1);
+    }
+    delay(200);
   }
-  delay(50);
-  if (!this->read_fw_version_(data)) {
-    this->status_set_error(LOG_STR("Failed to read firmware version"));
+
+  if (!ready) {
+    this->status_set_error(LOG_STR("Failed to initialize"));
     this->mark_failed();
     return;
   }
