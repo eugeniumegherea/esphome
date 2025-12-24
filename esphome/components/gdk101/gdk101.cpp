@@ -41,9 +41,6 @@ void GDK101Component::setup() {
       ready = true;
       break;
     }
-    if (!this->reset_sensor_(data)) {
-      ESP_LOGD(TAG, "Reset attempt %u failed", attempt + 1);
-    }
     delay(200);
   }
 
