@@ -33,10 +33,8 @@ void GDK101Component::update() {
 
 void GDK101Component::setup() {
   uint8_t data[2];
-  ESP_LOGD(TAG, "Starting setup, address=0x%02X", this->address_);
   bool ready = false;
   for (uint8_t attempt = 0; attempt < 5; attempt++) {
-    ESP_LOGD(TAG, "Setup attempt %u", attempt + 1);
     if (this->read_fw_version_(data)) {
       ready = true;
       break;
@@ -45,12 +43,10 @@ void GDK101Component::setup() {
   }
 
   if (!ready) {
-    this->status_set_error(LOG_STR("Failed to initialize"));
+    this->status_set_error(LOG_STR("Failed to read firmware version"));
     this->mark_failed();
     return;
   }
-
-  ESP_LOGD(TAG, "Setup complete, fw=%u.%u", data[0], data[1]);
 }
 
 void GDK101Component::dump_config() {
@@ -77,31 +73,24 @@ void GDK101Component::dump_config() {
 
 float GDK101Component::get_setup_priority() const { return setup_priority::DATA; }
 
-bool GDK101Component::read_data_(uint8_t a_register, uint8_t *data, uint8_t len) {
+bool GDK101Component::read_bytes_with_retry_(uint8_t a_register, uint8_t *data, uint8_t len) {
   for (uint8_t attempt = 0; attempt < 3; attempt++) {
-    ESP_LOGVV(TAG, "Reading reg 0x%02X (len=%u) attempt %u", a_register, len, attempt + 1);
-    if (this->write(&a_register, 1) != i2c::ERROR_OK) {
-      ESP_LOGD(TAG, "Write for reg=0x%02X failed", a_register);
-      delay(20);
-      continue;
+    if (this->read_bytes(a_register, data, len)) {
+      return true;
     }
-    delay(2);
-    if (this->read(data, len) != i2c::ERROR_OK) {
-      ESP_LOGD(TAG, "Read for reg=0x%02X failed after write", a_register);
-      delay(20);
-      continue;
+    if (this->write(&a_register, 1) == i2c::ERROR_OK) {
+      delay(2);
+      if (this->read(data, len) == i2c::ERROR_OK) {
+        return true;
+      }
     }
-    ESP_LOGVV(TAG, "Read ok reg=0x%02X data[0]=0x%02X data[1]=0x%02X", a_register, data[0],
-              len > 1 ? data[1] : 0);
-    return true;
+    delay(20);
   }
   return false;
 }
 
 bool GDK101Component::reset_sensor_(uint8_t *data) {
-  ESP_LOGD(TAG, "Issuing reset sequence");
-  if (this->read_data_(GDK101_REG_RESET, data, 1)) {
-    ESP_LOGD(TAG, "Reset read command acknowledged");
+  if (this->read_bytes_with_retry_(GDK101_REG_RESET, data, 1)) {
     return true;
   }
 
@@ -111,14 +100,13 @@ bool GDK101Component::reset_sensor_(uint8_t *data) {
     return false;
   }
   delay(50);
-  ESP_LOGD(TAG, "Reset write command sent");
   return true;
 }
 
 bool GDK101Component::read_dose_1m_(uint8_t *data) {
 #ifdef USE_SENSOR
   if (this->rad_1m_sensor_ != nullptr) {
-    if (!this->read_data_(GDK101_REG_READ_1MIN_AVG, data, 2)) {
+    if (!this->read_bytes_with_retry_(GDK101_REG_READ_1MIN_AVG, data, 2)) {
       ESP_LOGE(TAG, "Updating GDK101 failed!");
       return false;
     }
@@ -134,7 +122,7 @@ bool GDK101Component::read_dose_1m_(uint8_t *data) {
 bool GDK101Component::read_dose_10m_(uint8_t *data) {
 #ifdef USE_SENSOR
   if (this->rad_10m_sensor_ != nullptr) {
-    if (!this->read_data_(GDK101_REG_READ_10MIN_AVG, data, 2)) {
+    if (!this->read_bytes_with_retry_(GDK101_REG_READ_10MIN_AVG, data, 2)) {
       ESP_LOGE(TAG, "Updating GDK101 failed!");
       return false;
     }
@@ -148,7 +136,7 @@ bool GDK101Component::read_dose_10m_(uint8_t *data) {
 }
 
 bool GDK101Component::read_status_(uint8_t *data) {
-  if (!this->read_data_(GDK101_REG_READ_STATUS, data, 2)) {
+  if (!this->read_bytes_with_retry_(GDK101_REG_READ_STATUS, data, 2)) {
     ESP_LOGE(TAG, "Updating GDK101 failed!");
     return false;
   }
@@ -171,7 +159,7 @@ bool GDK101Component::read_status_(uint8_t *data) {
 bool GDK101Component::read_fw_version_(uint8_t *data) {
 #ifdef USE_TEXT_SENSOR
   if (this->fw_version_text_sensor_ != nullptr) {
-    if (!this->read_data_(GDK101_REG_READ_FIRMWARE, data, 2)) {
+    if (!this->read_bytes_with_retry_(GDK101_REG_READ_FIRMWARE, data, 2)) {
       ESP_LOGE(TAG, "Updating GDK101 failed!");
       return false;
     }
@@ -187,7 +175,7 @@ bool GDK101Component::read_fw_version_(uint8_t *data) {
 bool GDK101Component::read_measurement_duration_(uint8_t *data) {
 #ifdef USE_SENSOR
   if (this->measurement_duration_sensor_ != nullptr) {
-    if (!this->read_data_(GDK101_REG_READ_MEASURING_TIME, data, 2)) {
+    if (!this->read_bytes_with_retry_(GDK101_REG_READ_MEASURING_TIME, data, 2)) {
       ESP_LOGE(TAG, "Updating GDK101 failed!");
       return false;
     }
